@@ -1,29 +1,10 @@
-# Release Please - Automated versioning and npm publishing
-#
-# How it works:
-# 1. Every push to main with conventional commits updates a "Release PR"
-# 2. When you merge the Release PR, it:
-#    - Updates version in package.json
-#    - Updates CHANGELOG.md
-#    - Creates a GitHub Release with tag
-#    - Triggers the npm publish job below
-#
-# Commit message format:
-#   feat: add new feature          → minor version bump
-#   fix: fix a bug                 → patch version bump
-#   feat!: breaking change         → major version bump
-#   chore/docs: no version bump
-#
-# npm Publishing:
-#   Uses Trusted Publishing (OIDC) - no secrets needed!
-#   Configure at: https://www.npmjs.com/package/@verygoodplugins/mcp-{name}/access
-
 name: Release Please
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -31,50 +12,36 @@ permissions:
 
 jobs:
   release-please:
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: release
         with:
-          release-type: node
+          manifest-file: ".release-please-manifest.json"
+          config-file: "release-please-config.json"
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
 
   npm-publish:
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created }}
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || needs.release-please.outputs.release_created == 'true') }}
     runs-on: ubuntu-latest
+    environment: npm
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
       - run: npm ci
       - run: npm run build
       - run: npm test
-
-      # Trusted Publishing: No NPM_TOKEN needed!
-      - run: npm publish --access public --provenance
-
-  announce:
-    needs: [release-please, npm-publish]
-    if: ${{ needs.release-please.outputs.release_created }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Post to Slack
-        if: ${{ vars.SLACK_WEBHOOK_URL }}
-        uses: slackapi/slack-github-action@v1
-        with:
-          webhook-url: ${{ vars.SLACK_WEBHOOK_URL }}
-          webhook-type: incoming-webhook
-          payload: |
-            {
-              "text": "🚀 ${{ github.repository }} ${{ needs.release-please.outputs.tag_name }} released!\n\nhttps://github.com/${{ github.repository }}/releases/tag/${{ needs.release-please.outputs.tag_name }}"
-            }
+      - run: npm publish --provenance --access public

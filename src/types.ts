@@ -5,9 +5,9 @@ export interface TogglConfig {
 }
 
 export interface CacheConfig {
-  ttl: number;        // Time-to-live in milliseconds
-  maxSize: number;    // Maximum number of cached entities
-  batchSize: number;  // Number of entries to fetch per request
+  ttl: number; // Time-to-live in milliseconds
+  maxSize: number; // Maximum number of cached entities
+  batchSize: number; // Number of entries to fetch per request
 }
 
 // Core Toggl entities
@@ -113,10 +113,13 @@ export interface TimeEntry {
   billable?: boolean;
   start: string;
   stop?: string;
-  duration: number;  // In seconds, negative if currently running
+  duration: number; // In seconds, negative if currently running
+  duration_seconds?: number; // Effective duration in seconds, elapsed for running entries
+  running?: boolean;
+  elapsed_seconds?: number;
   description?: string;
-  tags?: string[];
-  tag_ids?: number[];
+  tags?: string[] | null;
+  tag_ids?: number[] | null;
   duronly?: boolean;
   at?: string;
   server_deleted_at?: string;
@@ -135,7 +138,11 @@ export interface HydratedTimeEntry extends TimeEntry {
   client_name?: string;
   client_id?: number;
   user_name?: string;
-  tag_names?: string[];
+  tags: string[];
+  tag_ids: number[];
+  tag_names: string[];
+  running: boolean;
+  duration_seconds: number;
 }
 
 // Report interfaces
@@ -198,11 +205,11 @@ export interface WorkspaceSummary {
 
 // API request/response interfaces
 export interface TimeEntriesRequest {
-  start_date?: string;  // ISO 8601 date
-  end_date?: string;    // ISO 8601 date
-  since?: number;       // Unix timestamp
-  before?: number;      // Unix timestamp
-  meta?: boolean;       // Include meta information
+  start_date?: string; // ISO 8601 date
+  end_date?: string; // ISO 8601 date
+  since?: number; // Unix timestamp
+  before?: number; // Unix timestamp
+  meta?: boolean; // Include meta information
 }
 
 export interface CreateTimeEntryRequest {
@@ -213,9 +220,9 @@ export interface CreateTimeEntryRequest {
   tags?: string[];
   tag_ids?: number[];
   billable?: boolean;
-  start: string;  // ISO 8601 datetime
-  stop?: string;  // ISO 8601 datetime
-  duration?: number;  // For entries with only duration
+  start: string; // ISO 8601 datetime
+  stop?: string; // ISO 8601 datetime
+  duration?: number; // For entries with only duration
   created_with: string;
 }
 
@@ -229,6 +236,23 @@ export interface UpdateTimeEntryRequest {
   start?: string;
   stop?: string;
   duration?: number;
+}
+
+export interface TimelineEvent {
+  id: number;
+  start_time: number; // Unix timestamp in seconds
+  end_time: number | null; // Unix timestamp in seconds, null if active
+  desktop_id: string;
+  idle: boolean;
+  filename: string | null; // Application name
+  title: string | null; // Window title, may contain sensitive data
+}
+
+export interface EnrichedTimelineEvent extends TimelineEvent {
+  filename: string;
+  start: string;
+  end: string;
+  duration_seconds: number;
 }
 
 // Cache interfaces
@@ -270,6 +294,8 @@ export interface DateRange {
   start: Date;
   end: Date;
 }
+
+export type DatePeriod = 'today' | 'yesterday' | 'week' | 'lastWeek' | 'month' | 'lastMonth';
 
 export interface GroupedEntries {
   [key: string]: HydratedTimeEntry[];
