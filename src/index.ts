@@ -581,6 +581,51 @@ const tools: Tool[] = [
       required: ['project_id'],
     },
   },
+  {
+    name: 'toggl_create_task',
+    description: 'Create a task within a project. Tasks are sub-items used for more granular time tracking.',
+    annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_id: { type: 'number', description: 'ID of the project to add the task to' },
+        name: { type: 'string', description: 'Task name (required)' },
+        workspace_id: { type: 'number', description: 'Workspace ID. Auto-resolved if only one workspace exists.' },
+        estimated_seconds: { type: 'number', description: 'Estimated duration in seconds (optional)' },
+      },
+      required: ['project_id', 'name'],
+    },
+  },
+  {
+    name: 'toggl_update_task',
+    description: 'Rename a task or toggle its active state.',
+    annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_id: { type: 'number', description: 'ID of the project the task belongs to' },
+        task_id: { type: 'number', description: 'ID of the task to update' },
+        workspace_id: { type: 'number', description: 'Workspace ID. Auto-resolved if only one workspace exists.' },
+        name: { type: 'string', description: 'New task name' },
+        active: { type: 'boolean', description: 'Set to false to deactivate the task' },
+      },
+      required: ['project_id', 'task_id'],
+    },
+  },
+  {
+    name: 'toggl_create_client',
+    description: 'Create a new client in a workspace.',
+    annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Client name (required)' },
+        workspace_id: { type: 'number', description: 'Workspace ID. Auto-resolved if only one workspace exists.' },
+        notes: { type: 'string', description: 'Optional notes about the client' },
+      },
+      required: ['name'],
+    },
+  },
 
   // Cache management
   {
@@ -1235,6 +1280,43 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const project = await api.updateProject(workspaceId, projectId, { active: false });
         invalidateWorkspaceCache();
         return jsonResponse({ success: true, message: 'Project archived successfully', project });
+      }
+
+      case 'toggl_create_task': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'creating a task');
+        const projectId = args?.project_id as number;
+        const task = await api.createTask(workspaceId, projectId, {
+          name: args?.name as string,
+          project_id: projectId,
+          estimated_seconds: args?.estimated_seconds as number | undefined,
+        });
+        invalidateWorkspaceCache();
+        return jsonResponse({ success: true, task });
+      }
+
+      case 'toggl_update_task': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'updating a task');
+        const params: Record<string, unknown> = {};
+        if (args?.name !== undefined) params.name = args.name;
+        if (args?.active !== undefined) params.active = args.active;
+        const task = await api.updateTask(
+          workspaceId,
+          args?.project_id as number,
+          args?.task_id as number,
+          params as any
+        );
+        invalidateWorkspaceCache();
+        return jsonResponse({ success: true, task });
+      }
+
+      case 'toggl_create_client': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'creating a client');
+        const client = await api.createClient(workspaceId, {
+          name: args?.name as string,
+          notes: args?.notes as string | undefined,
+        });
+        invalidateWorkspaceCache();
+        return jsonResponse({ success: true, client });
       }
 
       // Cache management
