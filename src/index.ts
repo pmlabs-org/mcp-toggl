@@ -184,6 +184,11 @@ async function resolveWorkspaceForTool(
   });
 }
 
+function invalidateWorkspaceCache(): void {
+  cache.clearCache();
+  cacheWarmed = false;
+}
+
 // Create MCP server
 const server = new Server(
   {
@@ -527,6 +532,53 @@ const tools: Tool[] = [
             'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
         },
       },
+    },
+  },
+
+  {
+    name: 'toggl_create_project',
+    description: 'Create a new project in a workspace.',
+    annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Project name (required)' },
+        workspace_id: { type: 'number', description: 'Workspace ID. Auto-resolved if only one workspace exists.' },
+        client_id: { type: 'number', description: 'Client ID to associate with the project (optional)' },
+        color: { type: 'string', description: 'Hex colour string e.g. "#e36a00" (optional)' },
+        billable: { type: 'boolean', description: 'Mark project as billable (optional)' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'toggl_update_project',
+    description: 'Update an existing project — rename, change client, colour, or billable flag.',
+    annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_id: { type: 'number', description: 'ID of the project to update' },
+        workspace_id: { type: 'number', description: 'Workspace ID. Auto-resolved if only one workspace exists.' },
+        name: { type: 'string', description: 'New project name' },
+        client_id: { type: 'number', description: 'New client ID' },
+        color: { type: 'string', description: 'New hex colour string' },
+        billable: { type: 'boolean', description: 'Billable flag' },
+      },
+      required: ['project_id'],
+    },
+  },
+  {
+    name: 'toggl_archive_project',
+    description: 'Archive a project (sets it to inactive). Archived projects no longer appear in active lists but time entries are preserved. This is the safe alternative to deletion.',
+    annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: true },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_id: { type: 'number', description: 'ID of the project to archive' },
+        workspace_id: { type: 'number', description: 'Workspace ID. Auto-resolved if only one workspace exists.' },
+      },
+      required: ['project_id'],
     },
   },
 
@@ -1150,6 +1202,39 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             },
           ],
         };
+      }
+
+      case 'toggl_create_project': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'creating a project');
+        const project = await api.createProject(workspaceId, {
+          name: args?.name as string,
+          client_id: args?.client_id as number | undefined,
+          color: args?.color as string | undefined,
+          billable: args?.billable as boolean | undefined,
+        });
+        invalidateWorkspaceCache();
+        return jsonResponse({ success: true, project });
+      }
+
+      case 'toggl_update_project': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'updating a project');
+        const projectId = args?.project_id as number;
+        const params: Record<string, unknown> = {};
+        if (args?.name !== undefined) params.name = args.name;
+        if (args?.client_id !== undefined) params.client_id = args.client_id;
+        if (args?.color !== undefined) params.color = args.color;
+        if (args?.billable !== undefined) params.billable = args.billable;
+        const project = await api.updateProject(workspaceId, projectId, params as any);
+        invalidateWorkspaceCache();
+        return jsonResponse({ success: true, project });
+      }
+
+      case 'toggl_archive_project': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'archiving a project');
+        const projectId = args?.project_id as number;
+        const project = await api.updateProject(workspaceId, projectId, { active: false });
+        invalidateWorkspaceCache();
+        return jsonResponse({ success: true, message: 'Project archived successfully', project });
       }
 
       // Cache management
