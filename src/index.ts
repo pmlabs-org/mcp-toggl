@@ -315,6 +315,60 @@ const tools: Tool[] = [
       required: [],
     },
   },
+  {
+    name: 'toggl_create_time_entry',
+    description: 'Create a manual time entry for logging time after the fact. Provide start + duration_seconds, or start + stop.',
+    annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        start: { type: 'string', description: 'Start time in ISO 8601 format (e.g. 2026-06-29T09:00:00+08:00)' },
+        duration_seconds: { type: 'number', description: 'Duration in seconds (use instead of stop for fixed-length entries)' },
+        stop: { type: 'string', description: 'Stop time in ISO 8601 format (alternative to duration_seconds)' },
+        description: { type: 'string', description: 'Description of the time entry' },
+        workspace_id: { type: 'number', description: 'Workspace ID. Auto-resolved if only one workspace exists.' },
+        project_id: { type: 'number', description: 'Project ID (optional)' },
+        task_id: { type: 'number', description: 'Task ID (optional)' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Tags for the entry' },
+        billable: { type: 'boolean', description: 'Mark as billable (optional)' },
+      },
+      required: ['start'],
+    },
+  },
+  {
+    name: 'toggl_update_time_entry',
+    description: 'Update fields on an existing time entry (description, project, tags, start/stop times).',
+    annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        time_entry_id: { type: 'number', description: 'ID of the time entry to update' },
+        workspace_id: { type: 'number', description: 'Workspace ID. Auto-resolved if only one workspace exists.' },
+        description: { type: 'string', description: 'New description' },
+        project_id: { type: 'number', description: 'New project ID' },
+        task_id: { type: 'number', description: 'New task ID' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Replacement tag list' },
+        start: { type: 'string', description: 'New start time (ISO 8601)' },
+        stop: { type: 'string', description: 'New stop time (ISO 8601)' },
+        billable: { type: 'boolean', description: 'Billable flag' },
+      },
+      required: ['time_entry_id'],
+    },
+  },
+  {
+    name: 'toggl_delete_time_entry',
+    description: '⚠️ PERMANENTLY delete a time entry. THIS CANNOT BE UNDONE. Call without confirm:true first to see a preview and warning. Only proceeds with confirm:true.',
+    annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        time_entry_id: { type: 'number', description: 'ID of the time entry to delete' },
+        workspace_id: { type: 'number', description: 'Workspace ID. Auto-resolved if only one workspace exists.' },
+        confirm: { type: 'boolean', description: 'Set to true to confirm permanent deletion. Without this, a warning preview is returned and nothing is deleted.' },
+      },
+      required: ['time_entry_id'],
+    },
+  },
 
   // Reporting tools
   {
@@ -778,6 +832,69 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             },
           ],
         };
+      }
+
+      case 'toggl_create_time_entry': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'creating a time entry');
+        const entry = await api.createTimeEntry(workspaceId, {
+          description: args?.description as string | undefined,
+          project_id: args?.project_id as number | undefined,
+          task_id: args?.task_id as number | undefined,
+          tags: args?.tags as string[] | undefined,
+          billable: args?.billable as boolean | undefined,
+          start: args?.start as string,
+          ...(args?.stop !== undefined ? { stop: args.stop as string } : {}),
+          ...(args?.duration_seconds !== undefined ? { duration: args.duration_seconds as number } : {}),
+        });
+        await ensureCache();
+        const hydrated = await cache.hydrateTimeEntries([entry]);
+        return jsonResponse({ success: true, entry: hydrated[0] });
+      }
+
+      case 'toggl_update_time_entry': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'updating a time entry');
+        const timeEntryId = args?.time_entry_id as number;
+        const updates: Record<string, unknown> = {};
+        if (args?.description !== undefined) updates.description = args.description;
+        if (args?.project_id !== undefined) updates.project_id = args.project_id;
+        if (args?.task_id !== undefined) updates.task_id = args.task_id;
+        if (args?.tags !== undefined) updates.tags = args.tags;
+        if (args?.start !== undefined) updates.start = args.start;
+        if (args?.stop !== undefined) updates.stop = args.stop;
+        if (args?.billable !== undefined) updates.billable = args.billable;
+        const entry = await api.updateTimeEntry(workspaceId, timeEntryId, updates as any);
+        await ensureCache();
+        const hydrated = await cache.hydrateTimeEntries([entry]);
+        return jsonResponse({ success: true, entry: hydrated[0] });
+      }
+
+      case 'toggl_delete_time_entry': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'deleting a time entry');
+        const timeEntryId = args?.time_entry_id as number;
+
+        if (!args?.confirm) {
+          const entry = await api.getTimeEntry(timeEntryId);
+          await ensureCache();
+          const [hydrated] = await cache.hydrateTimeEntries([entry]);
+          return jsonResponse({
+            warning: true,
+            message:
+              '⚠️ WARNING: Deleting a time entry CANNOT BE UNDONE. There is no way to recover it after deletion.',
+            entry_preview: {
+              id: entry.id,
+              description: entry.description ?? null,
+              start: entry.start,
+              stop: entry.stop ?? null,
+              duration_seconds: entry.duration,
+              project_name: (hydrated as any).project_name ?? null,
+            },
+            instruction:
+              'To proceed with deletion, call toggl_delete_time_entry again with confirm: true.',
+          });
+        }
+
+        await api.deleteTimeEntry(workspaceId, timeEntryId);
+        return jsonResponse({ success: true, deleted_entry_id: timeEntryId });
       }
 
       // Reporting tools
