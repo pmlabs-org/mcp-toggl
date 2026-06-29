@@ -12,6 +12,11 @@ import type {
   CreateTimeEntryRequest,
   UpdateTimeEntryRequest,
   TimelineEvent,
+  CreateProjectRequest,
+  UpdateProjectRequest,
+  CreateTaskRequest,
+  UpdateTaskRequest,
+  CreateClientRequest,
 } from './types.js';
 
 export class TimelineNotEnabledError extends Error {
@@ -219,6 +224,33 @@ export class TogglAPI {
 
   async getTag(workspaceId: number, tagId: number): Promise<Tag> {
     return this.request<Tag>('GET', `/workspaces/${workspaceId}/tags/${tagId}`);
+  }
+
+  // Project write methods
+  async createProject(workspaceId: number, params: CreateProjectRequest): Promise<Project> {
+    return this.request<Project>('POST', `/workspaces/${workspaceId}/projects`, params);
+  }
+
+  async updateProject(workspaceId: number, projectId: number, params: UpdateProjectRequest): Promise<Project> {
+    return this.request<Project>('PUT', `/workspaces/${workspaceId}/projects/${projectId}`, params);
+  }
+
+  // Task write methods
+  async createTask(workspaceId: number, projectId: number, params: CreateTaskRequest): Promise<Task> {
+    return this.request<Task>('POST', `/workspaces/${workspaceId}/projects/${projectId}/tasks`, params);
+  }
+
+  async updateTask(workspaceId: number, projectId: number, taskId: number, params: UpdateTaskRequest): Promise<Task> {
+    return this.request<Task>(
+      'PUT',
+      `/workspaces/${workspaceId}/projects/${projectId}/tasks/${taskId}`,
+      params
+    );
+  }
+
+  // Client write methods
+  async createClient(workspaceId: number, params: CreateClientRequest): Promise<Client> {
+    return this.request<Client>('POST', `/workspaces/${workspaceId}/clients`, params);
   }
 
   // Time entry methods
