@@ -300,3 +300,34 @@ export type DatePeriod = 'today' | 'yesterday' | 'week' | 'lastWeek' | 'month' |
 export interface GroupedEntries {
   [key: string]: HydratedTimeEntry[];
 }
+
+export interface CreateProjectRequest {
+  name: string;
+  client_id?: number;
+  color?: string;
+  billable?: boolean;
+}
+
+export interface UpdateProjectRequest {
+  name?: string;
+  client_id?: number;
+  color?: string;
+  billable?: boolean;
+  active?: boolean;
+}
+
+export interface CreateTaskRequest {
+  name: string;
+  project_id: number;
+  estimated_seconds?: number;
+}
+
+export interface UpdateTaskRequest {
+  name?: string;
+  active?: boolean;
+}
+
+export interface CreateClientRequest {
+  name: string;
+  notes?: string;
+}
