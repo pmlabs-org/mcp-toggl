@@ -1,6 +1,6 @@
 {
   "name": "mcp-toggl",
-  "version": "2.0.0",
+  "version": "1.2.0",
   "description": "Toggl MCP Server — queries all workspace members via Reports API v3",
   "type": "module",
   "scripts": {
