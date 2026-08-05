@@ -1,11 +1,7 @@
 name: Release Please
 
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
-
+  workflow_dispatch: # Disabled - upstream artifact, not needed for Pathfinder operations
 permissions:
   contents: write
   pull-requests: write

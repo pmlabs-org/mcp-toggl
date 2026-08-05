@@ -1,14 +1,7 @@
 name: Security
 
 on:
-  schedule:
-    - cron: "0 0 * * 0"
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
-
+  workflow_dispatch: # Disabled - upstream artifact, not needed for Pathfinder operations
 permissions:
   contents: read
   security-events: write

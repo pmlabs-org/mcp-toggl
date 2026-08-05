@@ -1,13 +1,7 @@
 name: PR Title
 
 on:
-  pull_request_target:
-    types:
-      - opened
-      - edited
-      - reopened
-      - synchronize
-
+  workflow_dispatch: # Disabled - upstream artifact, not needed for Pathfinder operations
 permissions:
   pull-requests: read
 
