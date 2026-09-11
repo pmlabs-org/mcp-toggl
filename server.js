@@ -333,6 +333,9 @@ app.post('/oauth/token', (req, res) => {
   if (!OAUTH_CLIENT_ID || !AUTH_TOKEN) { res.status(500).json({ error: 'server_misconfigured' }); return; }
   const grant_type = req.body.grant_type;
   if (grant_type === 'authorization_code') {
+    if (req.body.client_id !== OAUTH_CLIENT_ID || req.body.client_secret !== OAUTH_CLIENT_SECRET) {
+      res.status(401).json({ error: 'invalid_client' }); return;
+    }
     const { code, code_verifier, redirect_uri } = req.body;
     const stored = authCodes[code];
     if (!stored || stored.expiresAt < Date.now()) { res.status(400).json({ error: 'invalid_grant' }); return; }
