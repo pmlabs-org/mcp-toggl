@@ -6,19 +6,19 @@ import { z } from 'zod';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const PORT              = parseInt(process.env.PORT || '8080');
-const AUTH_TOKEN        = process.env.MCP_AUTH_TOKEN?.trim();
-const OAUTH_CLIENT_ID   = process.env.OAUTH_CLIENT_ID?.trim();
-const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET?.trim();
-const WORKSPACE_ID      = process.env.TOGGL_WORKSPACE_ID ?? '';
+const AUTH_TOKEN        = process.env.TOGGL_MCP_AUTH_TOKEN?.trim();
+const OAUTH_CLIENT_ID   = process.env.TOGGL_OAUTH_CLIENT_ID?.trim();
+const OAUTH_CLIENT_SECRET = process.env.TOGGL_OAUTH_CLIENT_SECRET?.trim();
+const WORKSPACE_ID      = process.env.TOGGL_TOGGL_WORKSPACE_ID ?? '';
 
-// Multi-key rotation: TOGGL_API_KEYS (comma-separated) is preferred. Falls back to
-// the legacy single TOGGL_API_KEY for backwards-compat with un-migrated deploys.
+// Multi-key rotation: TOGGL_TOGGL_API_KEYS (comma-separated) is preferred. Falls back to
+// the legacy single TOGGL_TOGGL_API_KEY for backwards-compat with un-migrated deploys.
 // Rotation is sticky-on-rate-limit: a successful request leaves the key index where
 // it is; only 402/429 advances the index. If every key in the pool reports a
 // rate-limit in one cycle, we fall back to the previous sleep-and-retry behaviour.
-const KEYS = (process.env.TOGGL_API_KEYS || process.env.TOGGL_API_KEY || '')
+const KEYS = (process.env.TOGGL_TOGGL_API_KEYS || process.env.TOGGL_TOGGL_API_KEY || '')
   .split(',').map(s => s.trim()).filter(Boolean);
-if (!KEYS.length) throw new Error('No Toggl API key configured (set TOGGL_API_KEYS or TOGGL_API_KEY)');
+if (!KEYS.length) throw new Error('No Toggl API key configured (set TOGGL_TOGGL_API_KEYS or TOGGL_TOGGL_API_KEY)');
 let keyIndex = 0;
 console.log(`[KEY] Loaded ${KEYS.length} Toggl API key(s); starting on index 0`);
 
