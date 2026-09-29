@@ -13,48 +13,88 @@ const WORKSPACE_ID      = process.env.TOGGL_TOGGL_WORKSPACE_ID ?? '';
 
 // Multi-key rotation: TOGGL_TOGGL_API_KEYS (comma-separated) is preferred. Falls back to
 // the legacy single TOGGL_TOGGL_API_KEY for backwards-compat with un-migrated deploys.
-// Rotation is sticky-on-rate-limit: a successful request leaves the key index where
-// it is; only 402/429 advances the index. If every key in the pool reports a
-// rate-limit in one cycle, we fall back to the previous sleep-and-retry behaviour.
+// Rotation is sticky-on-failure: a successful request leaves the key index where
+// it is; only 402/429 (rate limit) or a confirmed-revoked key advances the index. If every
+// live key in the pool reports a rate-limit in one cycle, we fall back to the previous
+// sleep-and-retry behaviour. A key Toggl rejects as invalid (HTTP 401/403 AND a failed
+// /me/logged check) is marked dead for the life of the process and skipped from then on;
+// changing the pool needs a container restart anyway, so dead keys are never re-tried.
 const KEYS = (process.env.TOGGL_TOGGL_API_KEYS || process.env.TOGGL_TOGGL_API_KEY || '')
   .split(',').map(s => s.trim()).filter(Boolean);
 if (!KEYS.length) throw new Error('No Toggl API key configured (set TOGGL_TOGGL_API_KEYS or TOGGL_TOGGL_API_KEY)');
 let keyIndex = 0;
+const deadKeys = new Set(); // indexes of keys Toggl has confirmed revoked (never logged by value)
 console.log(`[KEY] Loaded ${KEYS.length} Toggl API key(s); starting on index 0`);
 
-const currentAuth = () => Buffer.from(`${KEYS[keyIndex]}:api_token`).toString('base64');
+const authFor = i => Buffer.from(`${KEYS[i]}:api_token`).toString('base64');
 
 function rotateKey(reason) {
   if (KEYS.length <= 1) return false;
   const prev = keyIndex;
-  keyIndex = (keyIndex + 1) % KEYS.length;
-  console.log(`[KEY] Rotated ${prev}→${keyIndex} (pool size ${KEYS.length}) — reason: ${reason}`);
+  let next = (keyIndex + 1) % KEYS.length;
+  for (let n = 0; n < KEYS.length && deadKeys.has(next); n++) next = (next + 1) % KEYS.length;
+  if (next === prev || deadKeys.has(next)) return false; // no other live key to move to
+  keyIndex = next;
+  console.log(`[KEY] Rotated ${prev}→${keyIndex} (pool size ${KEYS.length}, ${deadKeys.size} dead) — reason: ${reason}`);
   return true;
+}
+
+// Toggl answers 403 both for a revoked token AND for a live token asking for something it may
+// not touch, so a bare 403 cannot condemn a key. /me/logged is 200 for any live token and 403
+// for a dead one. If the check itself fails (network), the key is NOT condemned.
+async function keyIsRevoked(i) {
+  try {
+    const res = await fetch('https://api.track.toggl.com/api/v9/me/logged', {
+      headers: { 'Authorization': `Basic ${authFor(i)}` },
+    });
+    await res.text().catch(() => {});
+    return res.status === 401 || res.status === 403;
+  } catch {
+    return false;
+  }
 }
 
 // ── Toggl API helpers ─────────────────────────────────────────────────────────
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function togglRequest(method, path, body, attempt = 1, rotations = 0) {
+  const usedIndex = keyIndex; // the key THIS request uses; a concurrent request may move keyIndex meanwhile
   const res = await fetch(`https://api.track.toggl.com${path}`, {
     method,
-    headers: { 'Authorization': `Basic ${currentAuth()}`, 'Content-Type': 'application/json' },
+    headers: { 'Authorization': `Basic ${authFor(usedIndex)}`, 'Content-Type': 'application/json' },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
+  if (res.status === 401 || res.status === 403) {
+    const alreadyDead = deadKeys.has(usedIndex);
+    if (alreadyDead || await keyIsRevoked(usedIndex)) {
+      await res.text().catch(() => {});
+      if (!alreadyDead) {
+        deadKeys.add(usedIndex);
+        console.log(`[KEY] Key ${usedIndex} rejected by Toggl (HTTP ${res.status}, confirmed revoked) — marked dead (${deadKeys.size}/${KEYS.length} dead)`);
+      }
+      // Only advance if nobody else already has; otherwise just retry on the key they moved to.
+      if (keyIndex === usedIndex && !rotateKey(`key ${usedIndex} revoked`)) {
+        throw new Error(`No usable Toggl API key: ${deadKeys.size} of ${KEYS.length} keys are revoked`);
+      }
+      return togglRequest(method, path, body, attempt, rotations);
+    }
+    // Key is alive: a genuine permission error on this resource. Fall through to the normal error below.
+  }
   if (res.status === 402 || res.status === 429) {
     const text = await res.text();
-    // Try a fresh key first; only sleep if every key in the pool has been tried this cycle.
-    if (rotations < KEYS.length - 1 && rotateKey(`HTTP ${res.status} on key ${keyIndex}`)) {
+    const live = KEYS.length - deadKeys.size;
+    // Try a fresh live key first; only sleep if every live key in the pool has been tried this cycle.
+    if (rotations < live - 1 && rotateKey(`HTTP ${res.status} on key ${keyIndex}`)) {
       return togglRequest(method, path, body, attempt, rotations + 1);
     }
     const match = text.match(/reset in (\d+) second/);
     const wait  = match ? parseInt(match[1]) + 5 : 65;
     if (attempt <= 3) {
-      console.log(`[KEY] All ${KEYS.length} keys rate-limited — sleeping ${wait}s before retry (attempt ${attempt}/3)`);
+      console.log(`[KEY] All ${live} keys rate-limited — sleeping ${wait}s before retry (attempt ${attempt}/3)`);
       await sleep(wait * 1000);
       return togglRequest(method, path, body, attempt + 1, 0);
     }
-    throw new Error(`Rate limit exceeded across all ${KEYS.length} keys after 3 attempts`);
+    throw new Error(`Rate limit exceeded across all ${live} keys after 3 attempts`);
   }
   if (!res.ok) { const t = await res.text(); throw new Error(`Toggl ${res.status} ${path}: ${t.slice(0, 200)}`); }
   return res.json();
